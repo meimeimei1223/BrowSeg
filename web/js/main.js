@@ -8,6 +8,10 @@ const TASKS = [
   ['liver_vessels|-', t('肝内血管 (統合)')],
   ['total|liver,spleen,kidney_right,kidney_left,gallbladder,pancreas,stomach,aorta,inferior_vena_cava,portal_vein_and_splenic_vein', t('腹部主要臓器 (roi_subset)')],
   ['total|-', t('全身 117 構造 (total, 5 モデル)')],
+  // V2 (private, for the pneumoperitoneum FEM)
+  ['trunk_cavities|-', t('体幹の腔 (trunk_cavities: 腹腔・胸腔・心膜・縦隔)')],
+  ['body|-', t('体 (body: 体幹・四肢)')],
+  ['body_fast|-', t('体 6 mm (body --fast)')],
 ];
 const BASE_MODELS = [[8, '肝内血管 (liver_vessels, 8)'], [570, '肝区域 (liver_segments, 570)'], [291, '腹部臓器 (organs, 291)'],
                      [293, '心臓・大血管 (cardiac, 293)']];
@@ -105,10 +109,14 @@ function busy(on, text) {
   App.busy = on;
   if (text) setPill('engineStatus', on ? 'busy' : 'ok', text);
   updateButtons();
+  // V3: a CT loaded with "run automatically" checked starts the liver bundle once the loading has finished
+  if (!on && App.autoBundlePending && App.S.ct && App.engine) { App.autoBundlePending = false; setTimeout(runBundle, 0); }
 }
 function updateButtons() {
   const ready = !!App.engine && !App.busy, has = !!App.S.ct;
   $('runTask').disabled = !(ready && has);
+  $('runBundle').disabled = !(ready && has);
+  $('dlBundle').disabled = !App.bundle || App.busy;
   for (const id of ['openLabels', 'dlCT', 'dlLabels', 'addLabel', 'updateMeshes']) $(id).disabled = !has || App.busy;
   $('openNifti').disabled = !!App.busy;
   $('switchSeries').hidden = !App.seriesList;
@@ -158,6 +166,8 @@ function onVolume(v, source) {
   if (source.kind !== 'dicom') App.seriesList = null;
   if (v.log) log(v.log.trim());
   recount(); renderLabelList(); App.renderViews(); updateButtons();
+  App.bundle = null;
+  App.autoBundlePending = $('autoBundle').checked;
 }
 async function loadDicomFiles(files) {
   files = files.filter((f) => !/\.(txt|json|md|jpg|png|zip|xml|html?|nii|gz)$/i.test(f.name) && f.name !== 'DICOMDIR');
@@ -345,6 +355,7 @@ function canonicalLabels(nii) {
 }
 function applyLabelMap(map, names, source, mode) {
   // map: canonical Uint8Array with local label values; names[v] = structure name
+  // mode: 'merge' (new labels overwrite), 'replace', 'under' (only voxels that have no label yet)
   const S = App.S;
   const snap = { lab: S.lab.slice(), reg: App.labels.list().map((l) => ({ ...l })) };
   const lut = new Uint8Array(256), present = new Uint8Array(256);
@@ -359,8 +370,8 @@ function applyLabelMap(map, names, source, mode) {
   }
   if (mode === 'replace') S.lab.fill(0);
   if (!App.labels.map.has(S.active)) S.active = 0;
-  const lab = S.lab;
-  for (let i = 0; i < map.length; i++) { const v = map[i]; if (v && lut[v]) lab[i] = lut[v]; }
+  const lab = S.lab, under = mode === 'under';
+  for (let i = 0; i < map.length; i++) { const v = map[i]; if (v && lut[v] && !(under && lab[i])) lab[i] = lut[v]; }
   const rec = App.editor.pushSnapshot(snap, 'task');
   App.invalidateLut();
   recount();
@@ -429,6 +440,169 @@ async function runTask() {
     toast(t('完了: {0}（{1} 秒）', taskName, ((performance.now() - t0) / 1000).toFixed(1)));
   } catch (e) { toast(t('解析失敗（{0}）: {1}', taskName, e.message), 6000); log(`ERROR ${taskName}: ${e.message}`); }
   busy(false, t('エンジン {0} / {1} スレッド{2}', App.engine.backend === 'webgpu' ? 'WebGPU' : 'CPU', App.engine.threads, ''));
+}
+
+// ================================================================= V3 liver bundle
+// Liver, Couinaud segments S1-S8, portal and hepatic veins, gallbladder and tumor candidates in one run, written as the
+// BLISS simulator model/ set (OBJ files + preset_choice.txt + export_log.txt); version 0.2: portal and vein from model
+// 950 only, the IVC as ivc.obj (options: the IVC in vein.obj, which BLISS reads, and the TS splenic vein in portal.obj).
+const BUNDLE_VERSION = 'BrowSeg V3 liver bundle 0.2 (2026-10-26; LiverModelExporter 0.3 steps, portal/vein from model 950 only, IVC own file)';
+const BUNDLE_TASKS = [  // [task, roi, label] in the order of LiverModelExporter
+  ['total', 'liver,gallbladder,inferior_vena_cava,portal_vein_and_splenic_vein', t('肝臓・胆嚢・下大静脈・門脈本幹')],
+  ['liver_segments', '-', t('Couinaud 区域 S1–S8')],
+  ['custom:950:liver', '-', t('門脈・肝静脈（OpenPVHV モデル 950）')],
+  ['liver_vessels', '-', t('腫瘍候補（liver_vessels）')],
+];
+const BUNDLE_OPTIONS = { margin: 10, tumorMin: 1, lps: true, ivcMargin: 10, ivcVein: false, splenic: false };
+const BUNDLE_OPT_KEY = 'browseg.bundleOptions';
+function initBundleOptions() {  // the two checkboxes, kept per viewer
+  let saved = {};
+  try { saved = JSON.parse(localStorage.getItem(BUNDLE_OPT_KEY) || '{}') || {}; } catch (e) { /* no storage */ }
+  for (const [id, k] of [['bundleIvcVein', 'ivcVein'], ['bundleSplenic', 'splenic']]) {
+    BUNDLE_OPTIONS[k] = $(id).checked = !!saved[k];
+    $(id).onchange = () => {
+      BUNDLE_OPTIONS[k] = $(id).checked;
+      try { localStorage.setItem(BUNDLE_OPT_KEY, JSON.stringify({ ivcVein: BUNDLE_OPTIONS.ivcVein, splenic: BUNDLE_OPTIONS.splenic })); } catch (e) { /* no storage */ }
+    };
+  }
+}
+function bundleModel950() { return (self.TSC_CONFIG && self.TSC_CONFIG.model950) || 'weights/openpvhv_950.tsw'; }
+async function runBundle() {
+  if (!App.S.ct || App.busy || !App.engine) return;
+  App.autoBundlePending = false;
+  busy(true, t('肝臓一式を解析中…'));
+  const t0 = performance.now(), S = App.S, tasks = [];
+  const custom = {};
+  for (const m of App.customModels) custom[m.id] = m.file;
+  custom[950] = bundleModel950();
+  let backend = '';
+  try {
+    await request({ type: 'bundleClear' }, 'bundleCleared');
+    for (let k = 0; k < BUNDLE_TASKS.length; k++) {
+      const [task, roi, label] = BUNDLE_TASKS[k];
+      log(t('肝臓一式 {0}/{1}: {2}', k + 1, BUNDLE_TASKS.length, label));
+      const r = await request({ type: 'run', task, roi, custom, keep: task }, 'result');
+      backend = r.backend;
+      log(`  ${task}: ${r.seconds.toFixed(1)} s (${r.backend})`);
+      tasks.push({ task, roi, seconds: r.seconds, backend: r.backend, timings: (r.log || '').replace(/^timings:\n/, '') });
+    }
+    const b = await request({ type: 'bundle', ...BUNDLE_OPTIONS, version: BUNDLE_VERSION }, 'bundle');
+    const ids = applyLabelMap(b.labels, b.names, 'bundle:liver', 'replace');
+    const seconds = (performance.now() - t0) / 1000;
+    S.tasks.push({ task: 'bundle:liver', roi: '-', time: new Date().toISOString(), seconds });
+    await updateMeshes(ids);
+    const src = S.source || {};
+    const L = [];
+    L.push(`${BUNDLE_VERSION}  ${new Date().toISOString()}`);
+    L.push(`source: ${src.name || src.kind || ''}${src.series_uid ? `  series ${src.series_number || ''} ${src.series_description || ''} (${src.series_uid})` : ''}`);
+    L.push(`CT: ${S.shape.join(' x ')} voxels, ${S.zooms.map((z) => z.toFixed(4)).join(' x ')} mm (canonical RAS grid)`);
+    L.push(`options: vessels=model950 margin_mm=${BUNDLE_OPTIONS.margin} tumor_min_ml=${BUNDLE_OPTIONS.tumorMin} frame=${BUNDLE_OPTIONS.lps ? 'lps' : 'ras'}`
+           + ` ivc=${BUNDLE_OPTIONS.ivcVein ? 'in vein.obj' : 'ivc.obj'} ivc_margin_mm=${BUNDLE_OPTIONS.ivcMargin} splenic_vein=${BUNDLE_OPTIONS.splenic ? 'added to portal.obj' : 'no'}`);
+    L.push(`networks: ${backend}; ${navigator.userAgent}`);
+    L.push(`frame: ${BUNDLE_OPTIONS.lps ? 'LPS mm (x, y negated from tsc_core RAS)' : 'RAS mm (tsc_core native)'}`);
+    L.push(`models: TotalSegmentator 2.18.0 weights converted for BrowSeg (298, 291, 293 as needed by roi_subset, 570, 8); model 950: ${custom[950]}`);
+    L.push('tasks:');
+    for (const x of tasks) L.push(`  ${x.task}${x.roi !== '-' ? ' roi_subset=' + x.roi : ''}  ${x.seconds.toFixed(1)} s  (${x.backend})\n${x.timings.trimEnd()}`);
+    L.push(b.log.trimEnd());
+    L.push('licenses: TS models 298/291/293/570/8 Apache-2.0 (TotalSegmentator); model 950 OpenPVHV weights Apache-2.0 (doi:10.5281/zenodo.23619753; trained on HVM, CC BY 4.0)');
+    L.push(`total ${seconds.toFixed(1)} s (bundle step ${b.seconds.toFixed(1)} s)`);
+    log(b.log.trimEnd());
+    let extra = { files: [], log: [] };
+    const organs = extraSelected();
+    if (organs.length) {
+      try { extra = await bundleExtra(organs, custom); } catch (e) {
+        toast(t('追加の臓器 失敗: {0}', e.message), 8000);
+        log(`ERROR extra organs: ${e.message}`);
+        extra.log = [`extra organs (total roi_subset=${organs.join(',')}): failed: ${e.message}`];
+      }
+    }
+    const exportLog = L.concat(extra.log).join('\n') + '\n';
+    const stem = String(src.name || 'ct').replace(/\.(nii\.gz|nii|gz)$/i, '').replace(/[^\w\-]+/g, '_');
+    App.bundle = { name: `liver_bundle_${stem}.zip`, files: [...b.files, ...extra.files, { name: 'export_log.txt', data: exportLog }] };
+    toast(t('肝臓一式 完了（{0} 秒）', seconds.toFixed(1)));
+    if ($('autoDownload').checked) downloadBundle();
+  } catch (e) {
+    toast(t('肝臓一式 失敗: {0}', e.message), 8000);
+    log(`ERROR bundle: ${e.message}`);
+    request({ type: 'bundleClear' }, 'bundleCleared').catch(() => {});
+  }
+  busy(false, t('エンジン {0} / {1} スレッド{2}', App.engine && App.engine.backend === 'webgpu' ? 'WebGPU' : 'CPU', App.engine ? App.engine.threads : '', ''));
+}
+// ---- extra organs (option of the published app; not part of the paper's bench): any TS total structures on top of the
+// bundle, from one more total run with only the chosen organs after the bundle. They are not added to the bundle's own
+// total run because roi_subset sets the 6 mm crop (model 298), so the liver and the bundle's files could change; this way
+// the bundle's files are those of the bundle alone. The OBJ files go to extra/ in the ZIP (the simulator does not read them).
+const BUNDLE_ORGANS = new Set(BUNDLE_TASKS[0][1].split(','));
+const EXTRA_KEY = 'browseg.bundleExtra';
+async function initExtraOrgans() {
+  let names = [];
+  try {
+    const text = await (await fetch(new URL('../weights/classmaps.txt', location.href).href)).text();
+    for (const line of text.split('\n')) {
+      const m = /^task total (\d+) (\S+)/.exec(line.trim());
+      if (m && !BUNDLE_ORGANS.has(m[2])) names.push(m[2]);
+    }
+  } catch (e) { log('extra organs: ' + e.message); }
+  if (!names.length) return;  // the list is unknown: the option stays hidden
+  let saved = [];
+  try { saved = JSON.parse(localStorage.getItem(EXTRA_KEY) || '[]'); } catch (e) { /* no storage */ }
+  const list = $('extraList');
+  for (const n of names) {
+    const lab = document.createElement('label');
+    const box = document.createElement('input');
+    box.type = 'checkbox'; box.value = n; box.checked = saved.includes(n);
+    lab.append(box, ' ' + Labels.display(n));
+    lab.title = n;
+    list.append(lab);
+  }
+  const changed = () => {
+    const sel = extraSelected();
+    $('extraCount').textContent = sel.length ? t('{0} 個選択', sel.length) : '';
+    try { localStorage.setItem(EXTRA_KEY, JSON.stringify(sel)); } catch (e) { /* no storage */ }
+  };
+  list.onchange = changed;
+  $('extraFilter').oninput = () => {
+    const q = $('extraFilter').value.trim().toLowerCase();
+    for (const lab of list.children) lab.hidden = !!q && !(lab.title + ' ' + lab.textContent).toLowerCase().includes(q);
+  };
+  $('extraNone').onclick = () => { for (const b of list.querySelectorAll('input')) b.checked = false; changed(); };
+  changed();
+  $('extraBox').hidden = false;
+}
+function extraSelected() { return [...document.querySelectorAll('#extraList input:checked')].map((b) => b.value); }
+// -> { files: [{name, data}], log: [lines] }; the label map of the run is also shown, under the bundle's labels
+async function bundleExtra(organs, custom) {
+  const roi = organs.join(',');
+  log(t('追加の臓器: {0}', organs.map(Labels.display).join(', ')));
+  const r = await request({ type: 'run', task: 'total', roi, custom }, 'result');
+  log(`  total roi_subset=${roi}: ${r.seconds.toFixed(1)} s (${r.backend})`);
+  const ids = applyLabelMap(r.labels, r.names, 'bundle:extra', 'under');
+  // meshes from the run's own label map, with the settings of the app's meshes (tsc_core mesh_options_for(name, false))
+  const items = organs.map((n) => ({ id: r.names.indexOf(n), name: n })).filter((x) => x.id > 0);
+  const m = await request({ type: 'mesh', labels: r.labels, items }, 'meshes', [r.labels.buffer]);
+  const byId = new Map(m.items.map((x) => [x.id, x]));
+  const lps = BUNDLE_OPTIONS.lps, files = [];
+  const L = [`extra organs (BrowSeg option, not in LiverModelExporter): total roi_subset=${roi}  ${r.seconds.toFixed(1)} s  (${r.backend});`,
+             `  a separate run after the bundle, so the files above do not depend on it; meshes as the app's (all pieces kept)`];
+  for (const n of organs) {
+    const it = byId.get(r.names.indexOf(n));
+    if (!it || !it.indices.length) { L.push(`  ${n}: no voxels, no file`); continue; }
+    const v = it.vertices, ix = it.indices;
+    const parts = [`# TS total:${n} (extra organ, total roi_subset run after the bundle)\n# ${BUNDLE_VERSION}\n`];
+    for (let i = 0; i < v.length; i += 3) {
+      const x = lps ? -v[i] : v[i], y = lps ? -v[i + 1] : v[i + 1];
+      parts.push(`v ${x.toFixed(3)} ${y.toFixed(3)} ${v[i + 2].toFixed(3)}\n`);
+    }
+    for (let i = 0; i < ix.length; i += 3) parts.push(`f ${ix[i] + 1} ${ix[i + 1] + 1} ${ix[i + 2] + 1}\n`);
+    files.push({ name: `extra/${n}.obj`, data: parts.join('') });
+    L.push(`  extra/${n}.obj  ${it.ml.toFixed(1)} mL (voxels), ${it.meshMl.toFixed(1)} mL (mesh), ${v.length / 3} vertices`);
+  }
+  await updateMeshes(ids);
+  return { files, log: L };
+}
+function downloadBundle() {
+  if (!App.bundle) return;
+  download(Zip.build(App.bundle.files), App.bundle.name);
 }
 
 // ================================================================= meshes
@@ -601,6 +775,10 @@ $('niftiInput').onchange = async (e) => { const f = e.target.files[0]; e.target.
 $('openLabels').onclick = () => $('labelsInput').click();
 $('labelsInput').onchange = (e) => { const f = [...e.target.files]; e.target.value = ''; loadLabelFiles(f); };
 $('runTask').onclick = runTask;
+$('runBundle').onclick = runBundle;
+$('dlBundle').onclick = downloadBundle;
+initBundleOptions();
+initExtraOrgans();
 $('dlCT').onclick = async () => download(await volumeNifti('ct'), 'ct.nii.gz');
 $('dlLabels').onclick = async () => { download(await volumeNifti('labels'), 'labels.nii.gz'); download(new Blob([JSON.stringify(caseMeta(), null, 1)]), 'labels_meta.json'); };
 $('dlOBJ').onclick = () => download(meshOBJ(), 'meshes.obj');

@@ -77,7 +77,14 @@ const LOCAL = Q.has('local') || !Q.get('tag');     // no tag -> local mode (the 
 let TAG = Q.get('tag');
 let REPS = +(Q.get('reps') || (Q.has('local') || !Q.get('tag') ? 1 : 3));   // local mode: one run per case x task unless reps= is given
 let TASKS = parseTasks(Q.get('tasks') || 'total:liver;total:-;liver_segments:-;liver_vessels:-');
-function parseTasks(s) { return s.split(';').filter(Boolean).map((t) => { const [task, roi] = t.split(':'); return { task, roi: roi || '-' }; }); }
+function parseTasks(s) {
+  return s.split(';').filter(Boolean).map((t) => {
+    const p = t.split(':');
+    if (p[0] === 'custom') return { task: p.slice(0, 3).join(':'), roi: p[3] || '-' };  // V3: custom:<id>:<crop>[:<roi>]
+    return { task: p[0], roi: p[1] || '-' };
+  });
+}
+const CUSTOM = { 950: Q.get('model950') || 'weights/openpvhv_950.tsw' };  // V3: OpenPVHV weights for custom:950
 const logEl = document.getElementById('log'), statusEl = document.getElementById('status');
 const log = (t) => { logEl.textContent += t + '\n'; };
 const status = (t) => {  // server mode: also written to <tag>/status.txt so a run can be followed without looking at the browser
@@ -275,13 +282,46 @@ async function run(cases) {
     load.log = workerLog.splice(0);
     log(`${c.name}: ${load.kind} ${load.shape.join('x')} load ${load.loadS.toFixed(2)} s`);
     for (const { task, roi } of TASKS) {
-      const key = `${c.name}__${task}_${roi === '-' ? 'all' : roi.replace(/,/g, '+')}`;
+      if (task === 'bundle') {  // V3 liver bundle (tasks=bundle): the four tasks + liver_bundle.cpp, REPS times; files of run 1 saved as <case>__bundle__<file>
+        const steps = [['total', 'liver,gallbladder,inferior_vena_cava,portal_vein_and_splenic_vein'], ['liver_segments', '-'], ['custom:950:liver', '-'], ['liver_vessels', '-']];
+        const reps = [];
+        for (let rep = 0; rep < REPS; rep++) {
+          status(`${c.name}: bundle run ${rep + 1}/${REPS}`);
+          workerLog = [];
+          const w0 = performance.now();  // from the loaded CT to the finished file set (the ZIP itself is built on the page)
+          await request({ type: 'bundleClear' }, 'bundleCleared');
+          const runsB = [];
+          for (const [t2, r2] of steps) {
+            const m = await request({ type: 'run', task: t2, roi: r2, custom: CUSTOM, keep: t2, echo: true }, 'result');
+            const hash = fnv1a(m.labels);  // every task of every run: repeatability; run 1 also saved for the agreement
+            if (rep === 0) await save(`${c.name}__${t2.replace(/:/g, '_')}_${r2 === '-' ? 'all' : r2.replace(/,/g, '+')}.u8`, m.labels);
+            runsB.push({ task: t2, roi: r2, seconds: m.seconds, modelSeconds: m.modelSeconds, backend: m.backend, fallback: m.fallback || null, heap: m.heap, hash,
+                         names: rep ? undefined : m.names, engineLog: m.log });
+            log(`  bundle ${rep + 1} ${t2}: ${m.seconds.toFixed(2)} s (${m.backend}), labels ${hash}`);
+          }
+          const b = await request({ type: 'bundle', margin: +(Q.get('margin') || 10), tumorMin: +(Q.get('tumormin') || 1), lps: !Q.has('ras'),
+                                    ivcVein: Q.has('ivcvein'), splenic: Q.has('splenic'), ivcMargin: +(Q.get('ivcmargin') || 10),
+                                    version: 'BrowSeg V3 liver bundle 0.2 (2026-10-26; LiverModelExporter 0.3 steps, portal/vein from model 950 only, IVC own file)' }, 'bundle');
+          const wall = (performance.now() - w0) / 1000;
+          const objHash = fnv1a(new Uint8Array(await new Blob(b.files.map((f) => f.data)).arrayBuffer()));
+          if (rep === 0) {
+            for (const f of b.files) await save(`${c.name}__bundle__${f.name}`, f.data);
+            await save(`${c.name}__bundle__display.u8`, b.labels);
+          }
+          reps.push({ rep, wall, bundleSeconds: b.seconds, runs: runsB, files: b.files.map((f) => ({ name: f.name, bytes: f.data.length })), objHash,
+                      names: rep ? undefined : b.names, log: rep ? undefined : b.log, workerLog: workerLog.splice(0) });
+          log(`  bundle run ${rep + 1}: ${wall.toFixed(2)} s in all (bundle step ${b.seconds.toFixed(2)} s), files ${objHash}`);
+        }
+        await save(`${c.name}__bundle.json`, JSON.stringify({ case: c.name, task: 'bundle', load, shape: load.shape, reps }, null, 1));
+        continue;
+      }
+      const key = `${c.name}__${task.replace(/:/g, '_')}_${roi === '-' ? 'all' : roi.replace(/,/g, '+')}`;  // V3: no colons in file names
       const runs = [];
       for (let rep = 0; rep < REPS; rep++) {
         status(`${key} run ${rep + 1}/${REPS}`);
         workerLog = [];
         const w0 = performance.now();
-        const m = await request({ type: 'run', task, roi }, 'result');
+        const m = await request({ type: 'run', task, roi, custom: CUSTOM }, 'result');
         const wall = (performance.now() - w0) / 1000;
         const hash = fnv1a(m.labels);
         runs.push({ rep, seconds: m.seconds, modelSeconds: m.modelSeconds, wall, backend: m.backend, fallback: m.fallback || null, heap: m.heap, gpuErrors: m.gpuErrors || 0, hash, names: rep ? undefined : m.names,

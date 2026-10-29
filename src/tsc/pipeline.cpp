@@ -184,6 +184,28 @@ TaskSpec make_task(const std::string& task, const std::vector<std::string>& roi_
         for (int i = 0; i < m.cfg->num_classes; ++i) m.to_task[i] = i;
         s.models.push_back(m);
         for (auto& r : roi_subset) s.keep.push_back(cm.task_index("liver_vessels", r));
+    } else if (task == "trunk_cavities" || task == "body" || task == "body_fast") {
+        // V2 (2026-10-06). TS 2.18 map_tasks_config.py: trunk_cavities = task 343, resample 1.5 mm, no crop;
+        // body = task 299 at 1.5 mm, body --fast = task 300 at 6 mm, no crop. step_size 0.5 (0.8 only for total).
+        // The body tasks get TS's body post-processing (nnunet.py, task_name == "body") in finish_parts().
+        const int tid = task == "trunk_cavities" ? 343 : task == "body" ? 299 : 300;
+        TaskModel m;
+        m.task_id = tid;
+        m.cfg = model(tid);
+        s.labels = m.cfg->labels;
+        if ((int)s.labels.size() < m.cfg->num_classes) s.labels.resize(m.cfg->num_classes);
+        const double sp = tid == 300 ? 6.0 : 1.5;
+        s.spacing = {sp, sp, sp};
+        s.step_size = 0.5;
+        m.to_task.resize(m.cfg->num_classes);
+        for (int i = 0; i < m.cfg->num_classes; ++i) m.to_task[i] = i;
+        s.models.push_back(m);
+        if (task != "trunk_cavities") s.postprocess = "body";
+        for (auto& r : roi_subset) {
+            const int li = m.cfg->label_index(r);
+            if (li < 0) throw std::runtime_error("ROI not in " + task + ": " + r);
+            s.keep.push_back(li);
+        }
     } else if (task.rfind("custom:", 0) == 0) {
         // fine-tuned model: "custom:<model id>[:<crop roi>]", no TS-side resampling (nnU-Net
         // resamples internally), optional crop to a total ROI via the 6 mm model
@@ -353,7 +375,76 @@ void TaskRunner::advance() {
     finish_parts();
 }
 
+// scipy.ndimage.label with its default structure (6-connectivity). Components are numbered 1.. in the order of
+// their first voxel in the scan order of `v` (C order, last axis fastest), like ndimage on an array of that order.
+// Returns the number of components; sizes[c] = voxel count of component c (sizes[0] unused).
+static int64_t label6(const Volume<uint8_t>& v, uint8_t value, std::vector<int32_t>& lab, std::vector<int64_t>& sizes) {
+    const Shape3 sh = v.shape;
+    const size_t n = v.data.size();
+    lab.assign(n, 0);
+    std::vector<int32_t> parent(1, 0);
+    auto find = [&](int32_t x) { while (parent[(size_t)x] != x) x = parent[(size_t)x] = parent[(size_t)parent[(size_t)x]]; return x; };
+    auto unite = [&](int32_t a, int32_t b) {  // keep the smaller (earlier) root so numbering follows first appearance
+        a = find(a); b = find(b);
+        if (a == b) return;
+        if (a < b) parent[(size_t)b] = a; else parent[(size_t)a] = b;
+    };
+    for (int64_t i = 0; i < sh[0]; ++i)
+        for (int64_t j = 0; j < sh[1]; ++j)
+            for (int64_t k = 0; k < sh[2]; ++k) {
+                const size_t p = (size_t)v.idx(i, j, k);
+                if (v.data[p] != value) continue;
+                int32_t l = 0;
+                const int32_t nb[3] = {k > 0 ? lab[p - 1] : 0, j > 0 ? lab[(size_t)v.idx(i, j - 1, k)] : 0, i > 0 ? lab[(size_t)v.idx(i - 1, j, k)] : 0};
+                for (int32_t q : nb)
+                    if (q) { if (!l) l = q; else unite(l, q); }
+                if (!l) { l = (int32_t)parent.size(); parent.push_back(l); }
+                lab[p] = l;
+            }
+    // flatten and renumber the roots in order of first appearance
+    std::vector<int32_t> newid(parent.size(), 0);
+    int32_t next = 0;
+    sizes.assign(1, 0);
+    for (size_t p = 0; p < n; ++p) {
+        if (!lab[p]) continue;
+        const int32_t r = find(lab[p]);
+        if (!newid[(size_t)r]) { newid[(size_t)r] = ++next; sizes.push_back(0); }
+        lab[p] = newid[(size_t)r];
+        ++sizes[(size_t)lab[p]];
+    }
+    return next;
+}
+
+// TS nnunet.py (task_name == "body"), on the prediction at task resolution before it goes back to the CT grid:
+//   keep_largest_blob_multilabel(..., ["body_trunc"])   -> only the largest body_trunc component stays (ties: first)
+//   remove_small_blobs_multilabel(..., ["body_extremities"], interval=[50000 / voxel volume, 1e10])
+//     -> body_extremities components with count <= 50000 mm3 / voxel volume (or > 1e10) are removed
+// Removed voxels become background (0).
+static void body_postprocess(Volume<uint8_t>& seg, const TaskSpec& spec, const ModelConfig& cfg) {
+    std::vector<int32_t> lab;
+    std::vector<int64_t> sizes;
+    const int trunc = cfg.label_index("body_trunc"), ext = cfg.label_index("body_extremities");
+    if (trunc < 0 || ext < 0) throw std::runtime_error("body model without body_trunc / body_extremities labels");
+    if (label6(seg, (uint8_t)trunc, lab, sizes) > 0) {
+        size_t best = 1;
+        for (size_t c = 2; c < sizes.size(); ++c)
+            if (sizes[c] > sizes[best]) best = c;  // np.argmax: first maximum
+        for (size_t p = 0; p < seg.data.size(); ++p)
+            if (lab[p] && (size_t)lab[p] != best) seg.data[p] = 0;
+    }
+    const double vox_vol = spec.spacing[0] * spec.spacing[1] * spec.spacing[2];
+    const double lo = 50000.0 / vox_vol, hi = 1e10;
+    if (label6(seg, (uint8_t)ext, lab, sizes) > 0) {
+        for (size_t p = 0; p < seg.data.size(); ++p)
+            if (lab[p] && ((double)sizes[(size_t)lab[p]] <= lo || (double)sizes[(size_t)lab[p]] > hi)) seg.data[p] = 0;
+    }
+}
+
 void TaskRunner::finish_parts() {
+    if (spec_.postprocess == "body") {
+        body_postprocess(combined_, spec_, *spec_.models.at(0).cfg);
+        mark("body post-processing");
+    }
     if (dbg_ && dbg_->keep) dbg_->combined = combined_;
     // ---- back to the (cropped) CT grid (order 0), un-crop, keep roi_subset labels
     Volume<uint8_t> back = resample_labels_to_shape(combined_, back_shape_, back_affine_);
@@ -385,7 +476,7 @@ std::unique_ptr<Runner> make_runner(const Volume<float>& ct, const std::string& 
 std::vector<int> task_model_ids(const std::string& task, const std::vector<std::string>& roi_subset, const ClassMaps& cm) {
     std::map<int, ModelConfig> dummy;
     std::map<int, const ModelConfig*> m;
-    std::vector<int> ids0 = {298, 291, 292, 293, 294, 295, 570, 8};
+    std::vector<int> ids0 = {298, 291, 292, 293, 294, 295, 570, 8, 343, 299, 300};  // V2: trunk_cavities, body, body_fast
     if (task.rfind("custom:", 0) == 0) ids0.push_back(std::atoi(task.substr(7).c_str()));
     for (int tid : ids0) {
         dummy[tid].task_id = tid;

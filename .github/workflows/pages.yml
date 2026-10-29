@@ -2,13 +2,14 @@
 #
 # The site mirrors the repository layout, so the page finds everything at the same relative paths as with serve.mjs:
 #   web/       the app (index.html, bench.html, worker.js, dist/, dist-st/, ...)
-#   weights/   classmaps.txt and the eight .tsw files, taken from the release WEIGHTS_TAG and checked against
+#   weights/   classmaps.txt and the eight .tsw files, taken from the release WEIGHTS_TAG (and the OpenPVHV weights
+#              openpvhv_950.tsw from WEIGHTS_TAG_V3), checked against
 #              weights/MANIFEST.json (SHA-256) before deployment. They are served from the same origin as the page:
 #              GitHub release downloads carry no CORS header, so the browser cannot fetch them from the release itself.
 #   index.html, bench.html   forward to web/ (keeping the query string), so /BrowSeg/ and /BrowSeg/bench.html?... work.
 # The paper's hash records are copied into web/paper/data/ so that bench.html?local=1 can compare results with them.
 # Cross-origin isolation (multi-threaded build) is provided by web/coi-serviceworker.js; no server headers are needed.
-# Site size is about 0.95 GB (GitHub Pages limit: 1 GB).
+# Site size is about 1.06 GB with the OpenPVHV weights (GitHub Pages limit: 1 GB; 0.99 GiB).
 name: Deploy GitHub Pages
 on:
   push:
@@ -23,6 +24,7 @@ concurrency:
   cancel-in-progress: true
 env:
   WEIGHTS_TAG: weights-v1
+  WEIGHTS_TAG_V3: paper-v3.0   # OpenPVHV weights for the liver bundle (openpvhv_950.tsw), attached to the V3 release
 jobs:
   deploy:
     runs-on: ubuntu-latest
@@ -41,6 +43,7 @@ jobs:
           cp -r web site/web
           cp weights/classmaps.txt site/weights/
           gh release download "$WEIGHTS_TAG" -R "$GITHUB_REPOSITORY" -p '*.tsw' -D site/weights
+          gh release download "$WEIGHTS_TAG_V3" -R "$GITHUB_REPOSITORY" -p 'openpvhv_950.tsw' -D site/weights
           python3 - <<'PY'
           import hashlib, json, pathlib, sys
           def entries(x):

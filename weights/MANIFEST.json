@@ -141,6 +141,24 @@
    "license": "Apache-2.0 (TotalSegmentator: 'Openly available for any usage')"
   },
   {
+   "file": "openpvhv_950.tsw",
+   "task_id": 950,
+   "description": "OpenPVHV portal vein / hepatic vein model (engine task custom:950:liver; labels 1 portal_vein, 2 hepatic_vein), used by the liver bundle",
+   "precision": "fp32",
+   "bytes": 123142796,
+   "sha256": "715c140f69b8ca768319d6ee44bb2c74721eb32d584fda78dc3cec0f65480f83",
+   "release": "paper-v3.0",
+   "upstream": {
+    "record": "OpenPVHV model weights v1.0, Zenodo, https://doi.org/10.5281/zenodo.23619753 (OpenPVHV_weights.zip)",
+    "dataset_folder": "Dataset950_HVM_PVHV",
+    "checkpoint": "fold_all/checkpoint_final.pth",
+    "checkpoint_sha256": "ad977a08fde429a337b22cdfd54eb7bce87cf66c4e146688b4909740128f9ef5",
+    "fold": "all",
+    "configuration": "3d_fullres"
+   },
+   "license": "Apache-2.0 (OpenPVHV weights)"
+  },
+  {
    "file": "fp16/total6mm_298.tsw",
    "task_id": 298,
    "description": "total (6 mm, cropping model) (fp16 storage; results may differ from the fp32 build)",

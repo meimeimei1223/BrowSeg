@@ -57,6 +57,8 @@ const I18N_EN = {
   '肝臓 (total, roi_subset=liver)': 'Liver (total, roi_subset=liver)', '肝臓 8 区域 (Couinaud)': 'Liver segments (Couinaud, 8)',
   '肝内血管 (統合)': 'Liver vessels', '腹部主要臓器 (roi_subset)': 'Main abdominal organs (roi_subset)',
   '全身 117 構造 (total, 5 モデル)': 'All 117 structures (total, 5 models)',
+  '体幹の腔 (trunk_cavities: 腹腔・胸腔・心膜・縦隔)': 'Trunk cavities (trunk_cavities: abdominal, thoracic, pericardium, mediastinum)',
+  '体 (body: 体幹・四肢)': 'Body (body: trunk, extremities)', '体 6 mm (body --fast)': 'Body 6 mm (body --fast)',
   'エンジンが停止しています。ページを再読み込みしてください': 'The engine has stopped. Reload the page.',
   'エンジン {0}（GPU が使えなくなったため切替）': 'Engine {0} (switched: the GPU became unavailable)',
   'エンジンが停止しました: {0}（ページを再読み込みしてください）': 'The engine stopped: {0} (reload the page)',
@@ -99,6 +101,23 @@ const I18N_EN = {
   'ラベル数の上限 (255) です': 'Label limit (255) reached', 'ラベル「{0}」は既にあります': 'Label "{0}" already exists',
   // worker.js
   'DICOM の画像が見つかりません（非圧縮の DICOM が必要です）': 'No DICOM images found (uncompressed DICOM is required)',
+  // V3 liver bundle
+  '肝臓一式（V3）': 'Liver bundle (V3)',
+  '肝臓・Couinaud 区域 S1–S8・門脈・肝静脈・胆嚢・腫瘍候補を自動で求め、手術シミュレータ用の OBJ 一式（下大静脈を含む 14 ファイル）を ZIP で書き出します。':
+    'Finds the liver, Couinaud segments S1–S8, portal and hepatic veins, gallbladder and tumour candidates automatically and writes the OBJ set for the surgical simulator (14 files with the inferior vena cava) as a ZIP.',
+  '下大静脈を肝静脈のファイルに含める（BLISS 用）': 'Put the inferior vena cava into the hepatic vein file (for BLISS)', '脾静脈を門脈に足す': 'Add the splenic vein to the portal vein',
+  '肝臓一式を実行': 'Run liver bundle', 'OBJ 一式 (.zip)': 'OBJ set (.zip)',
+  'CT を読み込んだら自動で実行': 'Run automatically when a CT is loaded', '終わったら ZIP を保存': 'Save the ZIP when done',
+  '肝臓・胆嚢・下大静脈・門脈本幹': 'Liver, gallbladder, IVC, portal trunk', 'Couinaud 区域 S1–S8': 'Couinaud segments S1–S8',
+  '門脈・肝静脈（OpenPVHV モデル 950）': 'Portal and hepatic veins (OpenPVHV model 950)', '腫瘍候補（liver_vessels）': 'Tumour candidates (liver_vessels)',
+  '肝臓一式を解析中…': 'Running the liver bundle…', '肝臓一式 {0}/{1}: {2}': 'Liver bundle {0}/{1}: {2}',
+  '肝臓一式 完了（{0} 秒）': 'Liver bundle done ({0} s)', '肝臓一式 失敗: {0}': 'Liver bundle failed: {0}',
+  // V3 liver bundle: extra organs
+  '追加の臓器（任意）': 'Extra organs (optional)',
+  '選んだ臓器は、肝臓一式の後に total をもう 1 回流して求め、ZIP の extra/ フォルダに OBJ で入れます。一式のファイルは変わりません。':
+    'The chosen organs come from one more total run after the liver bundle and go to the extra/ folder of the ZIP as OBJ files. The files of the bundle do not change.',
+  '臓器を検索': 'Search organs', '選択解除': 'Clear', '{0} 個選択': '{0} selected',
+  '追加の臓器: {0}': 'Extra organs: {0}', '追加の臓器 失敗: {0}': 'Extra organs failed: {0}',
 };
 
 // English display names of TotalSegmentator structures (labels.js has the Japanese ones)

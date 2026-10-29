@@ -23,6 +23,9 @@ const MODEL_FILES = {
   295: ['ribs_295.tsw', 'ribs model'],
   570: ['liver_segments_570.tsw', 'liver segments model'],
   8: ['liver_vessels_8.tsw', 'liver vessels model'],
+  343: ['trunk_cavities_343.tsw', 'trunk cavities model'],   // V2 (private)
+  299: ['body_299.tsw', 'body model'],                       // V2 (private)
+  300: ['body6mm_300.tsw', 'body model (6 mm, fast)'],       // V2 (private)
 };
 const CACHE_NAME = 'tsc-weights-v1';
 const FORCE_CPU = PARAMS.has('cpu');
@@ -399,7 +402,7 @@ async function ensureCpuModels(task, roi, custom) {
   await ensureModels(task, roi, custom, true);
 }
 
-async function run({ task, roi, custom }) {
+async function run({ task, roi, custom, keep, echo }) {
   const t0 = performance.now();
   await ensureModels(task, roi, custom);
   const modelSeconds = (performance.now() - t0) / 1000;   // weights: cache/download, WASM config, GPU upload (0 when already loaded)
@@ -458,11 +461,44 @@ async function run({ task, roi, custom }) {
     if (withString(task, (tp) => withString(roi || '-', (rp) => M._tsc_run(tp, rp)))) throw new Error(lastError());
   }
   const n = [0, 1, 2].map((i) => M._tsc_ct_info(i)).reduce((a, b) => a * b, 1);
+  const names = [];
+  for (let i = 0; i < M._tsc_num_label_names(); i++) names.push(M.UTF8ToString(M._tsc_label_name(i) >>> 0));
+  const taskLog = M.UTF8ToString(M._tsc_result_ptr(6) >>> 0);
+  // V3 liver bundle: the label map stays in the engine (tsc_bundle_keep) instead of coming back to the page
+  if (keep) {
+    // echo: a copy of the label map also comes back (verification bench: agreement of every task of the bundle)
+    const copy = echo ? view(Uint8Array, M._tsc_labels_ptr(), n).slice() : null;
+    if (withString(keep, (kp) => M._tsc_bundle_keep(kp))) throw new Error(lastError());
+    post({ type: 'result', task, roi, labels: copy, names, seconds: (performance.now() - t0) / 1000, modelSeconds, backend: used, fallback,
+           heap: mem().byteLength, gpuErrors, gpuChunk: typeof GpuUNet !== 'undefined' ? GpuUNet.chunkOps : null, log: taskLog },
+         copy ? [copy.buffer] : []);
+    return;
+  }
+  const labels = view(Uint8Array, M._tsc_labels_ptr(), n).slice();
+  post({ type: 'result', task, roi, labels, names, seconds: (performance.now() - t0) / 1000, modelSeconds, backend: used, fallback, heap: mem().byteLength,
+         gpuErrors, gpuChunk: typeof GpuUNet !== 'undefined' ? GpuUNet.chunkOps : null, log: taskLog }, [labels.buffer]);
+}
+
+// V3 liver bundle: the kept label maps -> the BLISS simulator file set (liver_bundle.cpp) + display label map
+function bundle({ margin, tumorMin, lps, ivcVein, splenic, ivcMargin, version }) {
+  const t0 = performance.now();
+  if (withString(version || '', (vp) => M._tsc_bundle_build(margin, tumorMin, lps ? 1 : 0, ivcVein ? 1 : 0, splenic ? 1 : 0, ivcMargin ?? 10, vp))) throw new Error(lastError());
+  const blob = view(Uint8Array, M._tsc_bundle_blob_ptr(), M._tsc_bundle_blob_len()).slice();
+  const files = [], dec = new TextDecoder();
+  let log = '';
+  for (let p = 0; p < blob.length;) {
+    const a = blob.indexOf(0, p), b = blob.indexOf(0, a + 1);
+    if (a < 0 || b < 0) break;
+    const name = dec.decode(blob.subarray(p, a)), body = blob.slice(a + 1, b);
+    if (name === '__log__') log = dec.decode(body); else files.push({ name, data: body });
+    p = b + 1;
+  }
+  M._tsc_bundle_clear();
+  const n = [0, 1, 2].map((i) => M._tsc_ct_info(i)).reduce((x, y) => x * y, 1);
   const labels = view(Uint8Array, M._tsc_labels_ptr(), n).slice();
   const names = [];
   for (let i = 0; i < M._tsc_num_label_names(); i++) names.push(M.UTF8ToString(M._tsc_label_name(i) >>> 0));
-  post({ type: 'result', task, roi, labels, names, seconds: (performance.now() - t0) / 1000, modelSeconds, backend: used, fallback, heap: mem().byteLength,
-         gpuErrors, gpuChunk: typeof GpuUNet !== 'undefined' ? GpuUNet.chunkOps : null, log: M.UTF8ToString(M._tsc_result_ptr(6) >>> 0) }, [labels.buffer]);
+  post({ type: 'bundle', files, log, labels, names, seconds: (performance.now() - t0) / 1000 }, [labels.buffer, ...files.map((f) => f.data.buffer)]);
 }
 
 function mesh({ labels, items, seq }) {
@@ -501,6 +537,8 @@ self.onmessage = async (e) => {
     else if (m.type === 'clearDicom') { M._tsc_clear_dicom(); post({ type: 'cleared' }); }
     else if (m.type === 'run') await run(m);
     else if (m.type === 'mesh') mesh(m);
+    else if (m.type === 'bundleClear') { M._tsc_bundle_clear(); post({ type: 'bundleCleared' }); }
+    else if (m.type === 'bundle') bundle(m);
   } catch (err) {
     post({ type: 'error', message: String(err && err.message || err), request: m.type });
   }

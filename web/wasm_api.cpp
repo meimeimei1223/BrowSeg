@@ -19,6 +19,7 @@
 #include "tsc/dicom.h"
 #include "tsc/mesh.h"
 #include "tsc/pipeline.h"
+#include "liver_bundle.h"
 
 using namespace tsc;
 
@@ -44,6 +45,9 @@ struct LabelMesh {
 };
 std::vector<LabelMesh> g_label_meshes;
 std::string g_error, g_log, g_tmp;
+// V3 liver bundle: label maps of the bundle tasks, kept by tsc_bundle_keep() (see liver_bundle.h)
+std::map<std::string, browseg::TaskLabels> g_bundle;
+std::string g_bundle_blob;  // "name\0contents\0" for every output file, then "__log__\0<log>\0"
 double g_time_task = 0, g_time_mesh = 0;
 
 void report(const std::string& stage, double f) {
@@ -66,7 +70,7 @@ std::vector<std::string> split_roi(const char* roi) {
 std::map<int, const ModelConfig*> model_map() {
     std::map<int, const ModelConfig*> m;
     for (auto& kv : g_cfgs) m[kv.first] = &kv.second;
-    for (int tid : {298, 291, 292, 293, 294, 295, 570, 8})
+    for (int tid : {298, 291, 292, 293, 294, 295, 570, 8, 343, 299, 300})  // V2: trunk_cavities, body, body_fast
         if (!m.count(tid)) m[tid] = nullptr;  // make_task reports missing models
     return m;
 }
@@ -499,5 +503,65 @@ EMSCRIPTEN_KEEPALIVE void tsc_free_results() {
     g_mesh = Mesh();
     g_label_meshes.clear();
 }
+
+// ---------------------------------------------------------------- 4. liver bundle (V3)
+// JS runs the four tasks one by one (tsc_run, or the step-wise GPU API) and calls tsc_bundle_keep() after each;
+// tsc_bundle_build() then makes the BLISS simulator file set as LiverModelExporter does.
+EMSCRIPTEN_KEEPALIVE void tsc_bundle_clear() {
+    g_bundle.clear();
+    g_bundle_blob = std::string();
+}
+
+// moves the label map of the last task into the bundle under `key` (task name), cropped to its labelled voxels (memory)
+EMSCRIPTEN_KEEPALIVE int tsc_bundle_keep(const char* key) {
+    try {
+        if (!g_seg.size()) throw std::runtime_error("no task result to keep");
+        browseg::TaskLabels t = browseg::crop_to_labels(std::move(g_seg), g_labels);
+        g_seg = Volume<uint8_t>();
+        g_bundle[key ? key : ""] = std::move(t);
+        return 0;
+    } catch (const std::exception& e) {
+        return fail(e);
+    }
+}
+
+// builds the files; afterwards the display label map is the current label map (tsc_labels_ptr / tsc_label_name)
+// ivc_into_vein, splenic_vein: options of bundle 0.2 (0 = default: ivc.obj, no splenic vein); ivc_margin_mm: IVC cut
+EMSCRIPTEN_KEEPALIVE int tsc_bundle_build(double margin_mm, double tumor_min_ml, int lps, int ivc_into_vein, int splenic_vein,
+                                          double ivc_margin_mm, const char* version) {
+    try {
+        const double t = now_s();
+        browseg::BundleOptions o;
+        o.margin_mm = margin_mm;
+        o.tumor_min_ml = tumor_min_ml;
+        o.lps = lps != 0;
+        o.ivc_into_vein = ivc_into_vein != 0;
+        o.splenic_vein = splenic_vein != 0;
+        o.ivc_margin_mm = ivc_margin_mm;
+        if (version && *version) o.version = version;
+        browseg::BundleResult r = browseg::build_liver_bundle(g_bundle, o);
+        g_bundle.clear();  // memory: the four label maps are no longer needed
+        g_bundle_blob.clear();
+        for (auto& f : r.files) {
+            g_bundle_blob += f.first;
+            g_bundle_blob.push_back('\0');
+            g_bundle_blob += f.second;
+            g_bundle_blob.push_back('\0');
+        }
+        g_bundle_blob += "__log__";
+        g_bundle_blob.push_back('\0');
+        g_bundle_blob += r.log;
+        g_bundle_blob.push_back('\0');
+        g_seg = std::move(r.display);
+        g_labels = r.display_names;
+        g_time_mesh = now_s() - t;
+        return 0;
+    } catch (const std::exception& e) {
+        g_bundle.clear();
+        return fail(e);
+    }
+}
+EMSCRIPTEN_KEEPALIVE const char* tsc_bundle_blob_ptr() { return g_bundle_blob.data(); }
+EMSCRIPTEN_KEEPALIVE double tsc_bundle_blob_len() { return (double)g_bundle_blob.size(); }
 
 }  // extern "C"

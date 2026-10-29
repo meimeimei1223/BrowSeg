@@ -48,6 +48,7 @@ struct TaskSpec {
     std::vector<TaskModel> models;
     std::vector<int> keep;                  // task labels kept (roi_subset); empty = all
     std::vector<std::string> labels;        // task label index -> class name
+    std::string postprocess;                // "body": TS nnunet.py's body post-processing on the task grid
 };
 
 // Input resampling order used by make_task (default 1 = TotalSegmentator >= 2.16; 3 reproduces TS <= 2.15).

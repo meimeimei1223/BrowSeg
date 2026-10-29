@@ -44,6 +44,8 @@ label { user-select: none; }
 .drop.hover { border-color: var(--accent); color: var(--text); }
 .bar { height: 6px; background: var(--panel2); border-radius: 4px; overflow: hidden; margin-top: 8px; }
 .bar > div { height: 100%; width: 0; background: linear-gradient(90deg, var(--accent), var(--accent2)); transition: width .15s; }
+.extra-list { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 2px 8px; max-height: 220px; overflow-y: auto; margin-top: 4px; }
+.extra-list label[hidden] { display: none; }
 .log { font: 11px/1.4 ui-monospace, Consolas, monospace; color: var(--muted); white-space: pre-wrap; background: var(--panel2); border: 1px solid var(--line); border-radius: 6px; padding: 6px; max-height: 260px; overflow-y: auto; }
 .list { display: flex; flex-direction: column; gap: 4px; max-height: 220px; overflow-y: auto; }
 .list .item { display: flex; gap: 6px; align-items: center; background: var(--panel2); border: 1px solid var(--line); border-radius: 6px; padding: 5px 8px; }

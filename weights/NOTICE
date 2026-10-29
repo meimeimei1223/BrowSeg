@@ -22,3 +22,13 @@ Attribution requested by the TotalSegmentator authors (README, "Openly available
   development and evaluation of segmentation algorithms (Medical Segmentation Decathlon). arXiv:1902.09063, 2019.
 
 Modifications: format conversion only (see above). No retraining, no fine-tuning.
+
+OpenPVHV weights (openpvhv_950.tsw, attached to the release paper-v3.0)
+---------------------------------------------------------------------------
+openpvhv_950.tsw is a converted copy of the OpenPVHV model weights v1.0 (nnU-Net v2, 3d_fullres,
+Dataset950_HVM_PVHV, fold "all", checkpoint_final.pth with SHA-256 ad977a08...8f9ef5), distributed under the
+Apache License, Version 2.0 at https://doi.org/10.5281/zenodo.23619753. The model separates the portal vein and
+the hepatic veins on CT and was trained on the HVM dataset (https://doi.org/10.5281/zenodo.19885789, CC BY 4.0).
+Preprint: https://doi.org/10.21203/rs.3.rs-11500369/v1. The conversion (tools/export_weights.py) changes the
+file format, not the values: a fresh conversion of the published checkpoint gives the same bytes.
+Modifications: format conversion only. No retraining, no fine-tuning.

@@ -26,7 +26,9 @@ struct MeshOptions {
     double min_piece_ml = 0.0;    // drop 26-connected pieces smaller than this (0 = keep all)
 };
 
-Mesh mask_to_mesh(const Volume<uint8_t>& mask, int label, const MeshOptions& opt = {});
+// origin: index of mask(0, 0, 0) on the grid of mask.affine, when the mask is a crop of that grid (nullptr = 0, 0, 0);
+// the vertices are then the same as for the uncropped mask.
+Mesh mask_to_mesh(const Volume<uint8_t>& mask, int label, const MeshOptions& opt = {}, const int64_t* origin = nullptr);
 
 // Settings by structure: thin tubular structures (vessels) keep the native resolution
 // and get only light smoothing, otherwise they collapse; organs use the defaults.

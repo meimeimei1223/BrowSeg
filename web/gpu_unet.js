@@ -617,7 +617,12 @@ GpuUNet.prototype.popVolumeScopes = async function () {
   if (!this._volScopes) return null;
   this._volScopes = false;
   const ev = await this.device.popErrorScope(), eo = await this.device.popErrorScope();
-  return ev || eo;
+  // Out of memory first: a buffer whose allocation failed is invalid, so the validation scope then also holds an
+  // "Invalid Buffer" error from its first use, which hid the cause. The worker's out-of-memory retry (low-memory mode)
+  // recognises the out-of-memory message; with the validation message it retried in parts and then used the CPU
+  // (T1200 4 GB, Chrome/Vulkan: total with roi liver, gallbladder, IVC, portal vein, accumulation >= 471 MiB, 2026-10-25).
+  if (eo) return { message: 'out of memory: ' + eo.message };
+  return ev;
 };
 
 // Sliding-window accumulation state kept on the GPU (one per model run).

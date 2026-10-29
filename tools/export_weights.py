@@ -37,6 +37,18 @@ def main():
     plans = json.load(open(os.path.join(mdir, "plans.json")))
     dsj = json.load(open(os.path.join(mdir, "dataset.json")))
     cfg = plans["configurations"]["3d_fullres"]
+    if "architecture" in cfg:  # newer nnU-Net v2 plans (e.g. Dataset343 trunk_cavities): same values under arch_kwargs
+        a = cfg["architecture"]; k = a["arch_kwargs"]
+        assert a["network_class_name"].endswith(".PlainConvUNet"), a["network_class_name"]
+        assert k["conv_op"].endswith("Conv3d") and k["norm_op"].endswith("InstanceNorm3d") and k["conv_bias"], k
+        assert k["norm_op_kwargs"] == {"eps": 1e-05, "affine": True}, k["norm_op_kwargs"]
+        assert k["nonlin"].endswith("LeakyReLU") and k["nonlin_kwargs"].get("negative_slope", 0.01) == 0.01, k["nonlin_kwargs"]
+        assert k["dropout_op"] is None, k["dropout_op"]
+        cfg = dict(cfg, UNet_class_name="PlainConvUNet", pool_op_kernel_sizes=k["strides"], conv_kernel_sizes=k["kernel_sizes"],
+                   n_conv_per_stage_encoder=k["n_conv_per_stage"], n_conv_per_stage_decoder=k["n_conv_per_stage_decoder"],
+                   UNet_base_num_features=k["features_per_stage"][0], unet_max_num_features=max(k["features_per_stage"]))
+        assert [min(cfg["UNet_base_num_features"] * 2 ** i, cfg["unet_max_num_features"]) for i in range(k["n_stages"])] \
+            == k["features_per_stage"], k["features_per_stage"]   # the old-format formula must give the same widths
     assert cfg["UNet_class_name"] == "PlainConvUNet", cfg["UNet_class_name"]
     assert cfg["normalization_schemes"] == ["CTNormalization"]
     assert plans["transpose_forward"] == [0, 1, 2]

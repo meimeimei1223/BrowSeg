@@ -108,7 +108,7 @@ void gauss_blur_axis(std::vector<float>& f, const Shape3& s, int axis, double si
 
 }  // namespace
 
-Mesh mask_to_mesh(const Volume<uint8_t>& vol, int label, const MeshOptions& opt) {
+Mesh mask_to_mesh(const Volume<uint8_t>& vol, int label, const MeshOptions& opt, const int64_t* origin) {
     Mesh mesh;
     const Shape3& S = vol.shape;
     // bbox of the label
@@ -251,7 +251,7 @@ Mesh mask_to_mesh(const Volume<uint8_t>& vol, int label, const MeshOptions& opt)
     const Affine& A = vol.affine;
     for (size_t v = 0; v < nv; ++v) {
         double o[3];
-        for (int d = 0; d < 3; ++d) o[d] = (double)lo[d] + ((double)verts[v * 3 + d] - pad[d]) * f[d] + (f[d] - 1) * 0.5;
+        for (int d = 0; d < 3; ++d) o[d] = (double)(lo[d] + (origin ? origin[d] : 0)) + ((double)verts[v * 3 + d] - pad[d]) * f[d] + (f[d] - 1) * 0.5;
         for (int r = 0; r < 3; ++r)
             mesh.vertices[v * 3 + r] = (float)(A[r * 4 + 0] * o[0] + A[r * 4 + 1] * o[1] + A[r * 4 + 2] * o[2] + A[r * 4 + 3]);
     }

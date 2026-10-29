@@ -57,6 +57,29 @@
 
     <!-- ============================== analyze -->
     <section id="tab-analyze" class="tab">
+      <h3>肝臓一式（V3）</h3>
+      <p class="muted small">肝臓・Couinaud 区域 S1–S8・門脈・肝静脈・胆嚢・腫瘍候補を自動で求め、手術シミュレータ用の OBJ 一式（下大静脈を含む 14 ファイル）を ZIP で書き出します。</p>
+      <div class="row wrap">
+        <button class="primary" id="runBundle" disabled>肝臓一式を実行</button>
+        <button id="dlBundle" disabled>OBJ 一式 (.zip)</button>
+      </div>
+      <div class="row small wrap">
+        <label><input type="checkbox" id="autoBundle" checked> CT を読み込んだら自動で実行</label>
+        <label><input type="checkbox" id="autoDownload" checked> 終わったら ZIP を保存</label>
+      </div>
+      <div class="row small wrap">
+        <label><input type="checkbox" id="bundleIvcVein"> 下大静脈を肝静脈のファイルに含める（BLISS 用）</label>
+        <label><input type="checkbox" id="bundleSplenic"> 脾静脈を門脈に足す</label>
+      </div>
+      <details id="extraBox" hidden>
+        <summary>追加の臓器（任意） <span id="extraCount" class="muted small"></span></summary>
+        <p class="muted small">選んだ臓器は、肝臓一式の後に total をもう 1 回流して求め、ZIP の extra/ フォルダに OBJ で入れます。一式のファイルは変わりません。</p>
+        <div class="row small">
+          <input id="extraFilter" placeholder="臓器を検索" class="grow">
+          <button id="extraNone">選択解除</button>
+        </div>
+        <div id="extraList" class="extra-list small"></div>
+      </details>
       <h3>自動アノテーション</h3>
       <select id="taskSelect"></select>
       <div class="row small">
@@ -180,6 +203,7 @@
 <script src="js/views2d.js"></script>
 <script src="js/viewer3d.js"></script>
 <script src="js/editor.js"></script>
+<script src="js/zip.js"></script>
 <script src="js/main.js"></script>
 </body>
 </html>

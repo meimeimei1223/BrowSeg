@@ -1,5 +1,5 @@
-exported by tools/export_browseg.py from TSC++Project commit 9ac708d6a6c84a4438822fe1d64b5b42633bce90; WebAssembly built from this tree
-web/dist/tsc.js sha256 311b2f841c7d22d4aa24883408324fee7ab89ecedb920525764fa1e5172082df
-web/dist/tsc.wasm sha256 fda8ec7a05263722282805a2b2e106f4c94a1c27d1fc97464a7a13f0af61eb9e
-web/dist-st/tsc.js sha256 819e17603f9795e2fe762437186531dbabb95f3e22a4ad327705e176b7c23862
-web/dist-st/tsc.wasm sha256 3a745afddbd661c980a69e0704f0efd5fce079b80cfc37ec34ad27fd1e5afea6
+exported by tools/export_browseg.py from TSC++Project commit 06e0d7addb2f3302302746010017948239959fef; WebAssembly built from this tree
+web/dist/tsc.js sha256 575bc34a346e79b0953d119a218c40ee9a9cbb50fdebf1360a8fb4a013b50036
+web/dist/tsc.wasm sha256 602d0e8fd2659c133797903c7917c039a93fe653e30e700a3965fc1ba441c4d2
+web/dist-st/tsc.js sha256 cb15b3422378f02448c0fcfb6dd3569e41435f878eaf9e2539375b86482d88e0
+web/dist-st/tsc.wasm sha256 473b18d94798cdea273bf06aa26b236bfa80c27c2268a5eba71dc48f46782c27

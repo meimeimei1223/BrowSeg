@@ -1,0 +1,14 @@
+cff-version: 1.2.0
+message: "If you use BrowSeg in research, please cite TotalSegmentator and nnU-Net (see README) and this repository. The bibliographic details of the BrowSeg paper will be added here after peer review."
+title: "BrowSeg: TotalSegmentator in the web browser"
+type: software
+authors:
+  - family-names: Kasai
+    given-names: Meidai
+    orcid: "https://orcid.org/0000-0002-4899-5663"
+version: paper-v3.0
+date-released: "2026-10-29"
+repository-code: "https://github.com/meimeimei1223/BrowSeg"
+url: "https://meimeimei1223.github.io/BrowSeg/"
+license: Apache-2.0
+doi: 10.5281/zenodo.23236315

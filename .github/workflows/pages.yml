@@ -1,4 +1,4 @@
-# Publishes the app as the GitHub Pages site (https://browseg.github.io/BrowSeg/).
+# Publishes the app as the GitHub Pages site (https://meimeimei1223.github.io/BrowSeg/).
 #
 # The site mirrors the repository layout, so the page finds everything at the same relative paths as with serve.mjs:
 #   web/       the app (index.html, bench.html, worker.js, dist/, dist-st/, ...)

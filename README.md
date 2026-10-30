@@ -17,7 +17,7 @@ differed by 1 to 8 voxels. The records are in `paper/`.
 
 ## Use it
 
-Open **https://browseg.github.io/BrowSeg/** in Chrome and drop a folder with the DICOM files of one CT series, or a
+Open **https://meimeimei1223.github.io/BrowSeg/** in Chrome and drop a folder with the DICOM files of one CT series, or a
 NIfTI file (`.nii`, `.nii.gz`), onto the page. The page shows whether the network runs on the GPU (WebGPU) or on the
 CPU. Then pick a task:
 
@@ -91,7 +91,7 @@ TotalSegmentator: on a GPU it computes the network in mixed precision, which can
 1. Obtain Task03_Liver of the Medical Segmentation Decathlon (http://medicaldecathlon.com/, CC BY-SA 4.0). Place the
    30 cases listed in `paper/data/lits_cases.csv` as `cases/<record_id>/<task03_file>` (for example
    `cases/lits_092/liver_92.nii.gz`). The SHA-256 column lets you confirm that each file is the one used in the paper.
-2. Open https://browseg.github.io/BrowSeg/bench.html?local=1&tasks=total:liver;liver_segments:-;liver_vessels:- in
+2. Open https://meimeimei1223.github.io/BrowSeg/bench.html?local=1&tasks=total:liver;liver_segments:-;liver_vessels:- in
    Chrome, choose the `cases` folder and press *Run* (add `&cpu=1` for the CPU path).
 3. The page compares the hash of every label map with the paper's (`paper/data/desktop_hashes.json` for the GPU path,
    `paper/data/desktop_hashes_wasm20.json` for the CPU path). *Download results (JSON)* saves the comparison;
@@ -115,7 +115,7 @@ to build it.
 
 ## Paper
 
-Manuscript under review. The bibliographic details will be added here after peer review.
+Author: Meidai Kasai (ORCID https://orcid.org/0000-0002-4899-5663). Manuscript under review; the bibliographic details will be added here after peer review. `CITATION.cff` gives the citation of the repository.
 
 ## Citations
 
